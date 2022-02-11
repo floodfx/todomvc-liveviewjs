@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "express-session": "^1.17.2",
-    "liveviewjs": "file:../liveviewjs",
+    "liveviewjs": "^0.0.2",
     "nprogress": "^0.2.0",
     "phoenix": "^1.6.6",
     "phoenix_html": "^3.2.0",
