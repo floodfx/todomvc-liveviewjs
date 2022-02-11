@@ -9,8 +9,7 @@
 This is an implementation of the TodoMVC app using [LiveViewJS](https://github.com/floodfx/liveviewjs). Feedback is a 🎁 and I welcome yours!
 
 ### Run it 🏃
-To get started, run `npm install` and then `npm start`.
-
+To get started, run `npm install` and then `npm start`.  Navigate to [http://localhost:4455/](http://localhost:4455/) in your browser.
 
 ## Resources 📚
 
