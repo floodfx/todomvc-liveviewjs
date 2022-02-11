@@ -18,5 +18,10 @@ const lvRouter: LiveViewRouter = {
 // AND then passing the router to the server
 lvServer.registerLiveViewRoutes(lvRouter);
 
+// add redirect from / to /todos
+lvServer.expressApp.get("/", (req, res) => {
+  res.redirect("/todos");
+});
+
 // then start the server
 lvServer.start();
