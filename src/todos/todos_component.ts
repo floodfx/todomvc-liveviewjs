@@ -1,58 +1,74 @@
-import { BaseLiveViewComponent, LiveViewMountParams, LiveViewSocket, LiveViewTemplate, html, form_for, LiveViewExternalEventListener, StringPropertyValues, text_input, LiveViewChangeset, live_patch } from "liveviewjs";
+import { LiveViewTemplate, html, form_for, text_input, live_patch, createLiveView, LiveViewMeta } from "liveviewjs";
 import { createTodo, emptyChangeset, getTodo, listTodos, removeTodo, Todo, updateTodo } from "./data";
-import { SessionData } from "express-session";
 
-type TodosEvents = "addTodo" | "removeTodo" | "toggleTodo" | "editTodo" | "completeAll" | "clearCompletedTodos";
+// Define how we can filter the todos
+const Filters = ["all", "active", "completed"] as const;
+// Create a type based on the filters
+type Filter = typeof Filters[number];
 
-type Filter = "all" | "active" | "completed";
-
-interface FilterOption {
+// Define the shape of liveview cotext
+interface TodosContext {
+  todos: Todo[];
   filter: Filter;
 }
 
-interface TodosContext {
-  todos: Todo[];
-  filterOption: FilterOption
-}
+// Define the events that can be triggered by the user.
+type TodosEvents =
+  | { type: "addTodo"; id: string; text: string }
+  | { type: "removeTodo"; id: string }
+  | { type: "toggleTodo"; id: string }
+  // tid is work around for known bug in morphdom with input[name=id]
+  // https://elixirforum.com/t/i-had-the-weirdest-problem-with-liveviews-change-tracking-when-name-attribute-has-value-id/39008/3
+  | { type: "editTodo"; tid: string; text: string }
+  | { type: "completeAll" }
+  | { type: "clearCompletedTodos" };
 
-export class TodosComponent extends BaseLiveViewComponent<TodosContext, FilterOption> implements
-  LiveViewExternalEventListener<TodosContext, TodosEvents, Partial<Todo>> {
+// Define the liveview
+export const todosLiveView = createLiveView<TodosContext, TodosEvents>({
+  // Define the initial state
+  mount: (socket) => {
+    const filter = "all";
+    socket.assign({
+      todos: filteredTodos(listTodos(), filter),
+      filter,
+    });
+    socket.tempAssign({ todos: [] });
+  },
 
-  mount(params: LiveViewMountParams, session: Partial<SessionData>, socket: LiveViewSocket<TodosContext>): TodosContext {
-    const filterOption: FilterOption = { filter: "all" };
-    return {
-      todos: this.filteredTodos(listTodos(), filterOption),
-      filterOption,
-    }
-  }
+  // Handle url changes for the filters
+  handleParams: (url, socket) => {
+    const filterParam = url.searchParams.get("filter") ?? "all";
+    const filter: Filter = Filters.includes(filterParam as Filter) ? (filterParam as Filter) : "all";
+    socket.assign({
+      todos: filteredTodos(listTodos(), filter),
+      filter,
+    });
+  },
 
-  handleParams(params: FilterOption, url: string, socket: LiveViewSocket<TodosContext>): TodosContext {
-    const filterOption: FilterOption = params || { filter: "all" };
-    return {
-      todos: this.filteredTodos(listTodos(), filterOption),
-      filterOption,
-    };
-  }
-
-  handleEvent(event: TodosEvents, params: StringPropertyValues<Pick<Todo, "id" | "text" | "completed">>, socket: LiveViewSocket<TodosContext>): TodosContext {
-    const { id, text } = params;
-    switch (event) {
+  // Handle all the different events from user input
+  handleEvent: (event, socket) => {
+    switch (event.type) {
       case "addTodo":
-        createTodo({ text });
+        const newChangeset = createTodo({ text: event.text });
+        if (newChangeset.valid) {
+          socket.assign({ todos: listTodos(), filter: "all" });
+          return;
+        }
         break;
       case "toggleTodo":
-        const todoToToggle = getTodo(id);
+        const todoToToggle = getTodo(event.id);
         if (todoToToggle) {
           updateTodo(todoToToggle, { completed: !todoToToggle.completed });
         }
         break;
       case "editTodo":
-        const todoToEdit = getTodo(id);
+        const todoToEdit = getTodo(event.tid);
         if (todoToEdit) {
-          updateTodo(todoToEdit, { text });
+          updateTodo(todoToEdit, { text: event.text });
         }
         break;
       case "removeTodo":
+        const { id } = event;
         const todoToRemove = getTodo(id);
         if (todoToRemove) {
           removeTodo(id);
@@ -60,104 +76,122 @@ export class TodosComponent extends BaseLiveViewComponent<TodosContext, FilterOp
         break;
       case "completeAll":
         const todosToToggle = listTodos();
-        todosToToggle.forEach(todo => updateTodo(todo, { completed: true }));
+        todosToToggle.forEach((todo) => updateTodo(todo, { completed: true }));
         break;
       case "clearCompletedTodos":
         const todosToClear = listTodos();
-        todosToClear.filter(todo => todo.completed).forEach(todo => removeTodo(todo.id));
+        todosToClear.filter((todo) => todo.completed).forEach((todo) => removeTodo(todo.id));
         break;
     }
-    const filterOption: FilterOption = socket.context.filterOption;
-    return {
-      todos: this.filteredTodos(listTodos(), filterOption),
-      filterOption
-    }
-  }
+    const filter = socket.context.filter;
+    socket.assign({
+      todos: filteredTodos(listTodos(), filter),
+      filter,
+    });
+  },
 
-  render(context: TodosContext): LiveViewTemplate {
-    const { todos, filterOption } = context;
+  // Render the liveview based on the state of the LiveView
+  render: (context, meta) => {
+    const { todos, filter } = context;
+    const { csrfToken } = meta;
     return html`
       <header class="header">
         <h1>todos</h1>
-        ${form_for("addTodo", { phx_submit: "addTodo" })}
+        ${form_for("addTodo", csrfToken, { phx_submit: "addTodo" })}
           ${text_input<Todo>(emptyChangeset, "text", { placeholder: "What needs to be done?", className: "new-todo" })}
         </form>
       </header>
-      <!-- This section should be hidden by default and shown when there are todos -->
-      ${todos.length > 0 ? this.renderMain(todos) : ""}
+      ${todos.length > 0 ? renderMain(todos, meta) : ""}
+      ${todos.length > 0 ? renderFooter(todos, filter) : ""}
+    `;
+  },
+});
 
-      <!-- This footer should be hidden by default and shown when there are todos -->
-      ${todos.length > 0 ? this.renderFooter(todos, filterOption) : ""}
-    `
-  }
-
-  renderMain(todos: Todo[]): LiveViewTemplate {
-    return html`
-      <section class="main">
-        ${form_for("toggleAll", { id: `toggleAll`, phx_change: "completeAll" })}
+// Helper functions for rendering parts of the LiveView
+function renderMain(todos: Todo[], meta: LiveViewMeta): LiveViewTemplate {
+  const { csrfToken } = meta;
+  return html`
+      <section id="container" class="main">
+        ${form_for("toggleAll", csrfToken, { id: `toggleAll`, phx_change: "completeAll" })}
           <input id="toggle-all" class="toggle-all" type="checkbox" />
-          <label for="toggle-all"> Mark all as complete</label>
+          <label for="toggle-all">Mark all as complete</label>
         </form>
-        <ul class="todo-list">
-        <!--These are here just to show the structure of the list items-- >
-          ${todos.map(todo => this.renderTodo(todo))}
+        <ul id="todo-list" class="todo-list">
+          ${todos.map((todo) => renderTodo(todo, csrfToken))}
         </ul>
       </section>
-    `
-  }
+    `;
+}
 
-  renderTodo(todo: Todo): LiveViewTemplate {
-    return html`
-      <!--List items should get the class "editing" when editing and "completed" when marked as completed -->
-      <li id="li_${todo.id}" phx-hook="Todo" phx-value-id="${todo.id}" class="${todo.completed ? "completed" : ""}">
+function renderTodo(todo: Todo, csrfToken: string): LiveViewTemplate {
+  return html`
+      <li id="${todo.id}" phx-hook="EditTodo" class="${todo.completed ? "completed" : ""}">
         <div id="view_${todo.id}" class="view">
-          ${form_for("toggleTodo", { id: `toggle_${todo.id}`, phx_change: "toggleTodo" })}
-            <input id="input_id_${todo.id}" name="id" type="hidden" value="${todo.id}" />
-            <input id="input_completed_${todo.id}" name="completed" class="toggle" type="checkbox" ${todo.completed ? "checked" : ""} />
-            <label id="label_${todo.id}">${todo.text}</label>
-          </form>
-          <button phx-value-id="${todo.id}" phx-click="removeTodo" class="destroy"></button>
+          <div>
+            <input 
+              phx-value-id="${todo.id}" 
+              phx-click="toggleTodo"  
+              name="completed" 
+              type="checkbox"
+              class="toggle"
+              ${todo.completed ? "checked" : ""} 
+            />
+            <label id="label_${todo.id}">${todo.text}</label>            
+          </div>
+          <button 
+            phx-value-id="${todo.id}" 
+            phx-click="removeTodo" 
+            class="destroy">
+          </button>
         </div>
-        ${form_for("editTodo", { id: `edit_${todo.id}`, phx_submit: "editTodo" })}
-          <input name="id" type="hidden" value="${todo.id}" />
+        ${form_for("editTodo", csrfToken, { phx_submit: "editTodo" })}
+          <input name="tid" type="hidden" value="${todo.id}" />
           <input name="text" class="edit" value="${todo.text}" />
         </form>
       </li>
-    `
-  }
+    `;
+}
 
-  renderFooter(todos: Todo[], filterOption: FilterOption): LiveViewTemplate {
-    return html`
-      <footer class="footer" >
-      <!--This should be "0 items left" by default -->
-        <span class="todo-count"> <strong>${todos.length}</strong> item${todos.length === 1 ? "s" : ""} left</span>
-          <!--Remove this if you don't implement routing -->
-        <ul class="filters" >
-          <li>
-            ${live_patch("All", { to: { path: "/todos", params: { filter: "all" } }, className: filterOption.filter === "all" ? "selected" : "" })}
-          </li>
-          <li>
-            ${live_patch("Active", { to: { path: "/todos", params: { filter: "active" } }, className: filterOption.filter === "active" ? "selected" : "" })}
-          </li>
-          <li>
-            ${live_patch("Completed", { to: { path: "/todos", params: { filter: "completed" } }, className: filterOption.filter === "completed" ? "selected" : "" })}
-          </li>
-        </ul>
-        <!--Hidden if no completed items are left ↓ -->
-        <button phx-click="clearCompletedTodos" class="clear-completed">Clear completed</button>
-      </footer>
-    `
-  }
+function renderFooter(todos: Todo[], filter: Filter): LiveViewTemplate {
+  return html`
+    <footer class="footer">
+      <span class="todo-count">
+        <strong>${todos.length}</strong>
+        item${todos.length !== 1 ? "s" : ""} left
+      </span>
+      <ul class="filters">
+        <li>
+          ${live_patch("All", {
+            to: { path: "/todos", params: { filter: "all" } },
+            className: filter === "all" ? "selected" : "",
+          })}
+        </li>
+        <li>
+          ${live_patch("Active", {
+            to: { path: "/todos", params: { filter: "active" } },
+            className: filter === "active" ? "selected" : "",
+          })}
+        </li>
+        <li>
+          ${live_patch("Completed", {
+            to: { path: "/todos", params: { filter: "completed" } },
+            className: filter === "completed" ? "selected" : "",
+          })}
+        </li>
+      </ul>
+      <!--Hidden if no completed items are left ↓ -->
+      <button phx-click="clearCompletedTodos" class="clear-completed">Clear completed</button>
+    </footer>
+  `;
+}
 
-  filteredTodos(todos: Todo[], filterOption: FilterOption): Todo[] {
-    switch (filterOption.filter) {
-      case "active":
-        return todos.filter(todo => !todo.completed);
-      case "completed":
-        return todos.filter(todo => todo.completed);
-      default:
-        return todos;
-    }
+function filteredTodos(todos: Todo[], filter: Filter): Todo[] {
+  switch (filter) {
+    case "active":
+      return todos.filter((todo) => !todo.completed);
+    case "completed":
+      return todos.filter((todo) => todo.completed);
+    default:
+      return todos;
   }
-
 }
