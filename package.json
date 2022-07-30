@@ -22,10 +22,10 @@
     }
   },
   "dependencies": {
-    "@liveviewjs/express": "^0.4.0",
+    "liveviewjs": "^0.4.4",
+    "@liveviewjs/express": "^0.4.4",
     "express": "^4.18.1",
-    "express-session": "^1.17.2",
-    "liveviewjs": "^0.4.0",
+    "express-session": "^1.17.2",    
     "nprogress": "^0.2.0",
     "phoenix": "^1.6.9",
     "phoenix_html": "^3.2.0",
