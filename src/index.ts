@@ -1,14 +1,14 @@
 // create new LiveViewServer
-import WebSocket from "ws";
+import { NodeExpressLiveViewServer, NodeWsAdaptor } from "@liveviewjs/express";
 import express from "express";
-import { Server } from "http";
-import { nanoid } from "nanoid";
-import { LiveViewRouter, SingleProcessPubSub, SessionFlashAdaptor } from "liveviewjs";
-import { todosLiveView } from "./todos/todos_component";
-import { NodeExpressLiveViewServer, NodeJwtSerDe, NodeWsAdaptor, RedisPubSub } from "@liveviewjs/express";
-import { pageRenderer } from "./views/pageRenderer";
 import session, { MemoryStore } from "express-session";
+import { Server } from "http";
+import { LiveViewRouter } from "liveviewjs";
+import { nanoid } from "nanoid";
 import path from "path";
+import WebSocket from "ws";
+import { todosLiveView } from "./todos/todos_component";
+import { liveHtmlTemplate } from "./views/liveHtmlTemplate";
 
 // you'd want to set this to some secure, random string in production
 const signingSecret = "MY_VERY_SECRET_KEY";
@@ -43,11 +43,9 @@ app.use(
 // initialize the LiveViewServer
 const liveView = new NodeExpressLiveViewServer(
   router,
-  new NodeJwtSerDe(signingSecret),
-  new SingleProcessPubSub(),
-  pageRenderer,
+  liveHtmlTemplate,
   { title: "TodoMVC", suffix: " · LiveViewJS" },
-  new SessionFlashAdaptor()
+  { serDeSigningSecret: signingSecret }
 );
 
 // setup the LiveViewJS middleware
@@ -82,7 +80,7 @@ wsServer.on("connection", (ws) => {
 });
 
 // listen for requests
-const port = process.env.PORT || 4001;
+const port = process.env.PORT || 3001;
 httpServer.listen(port, () => {
   console.log(`TodoMVC LiveViewJS is listening on port ${port}!`);
 });
