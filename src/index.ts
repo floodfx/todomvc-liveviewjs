@@ -1,10 +1,9 @@
 // create new LiveViewServer
-import { NodeExpressLiveViewServer, NodeWsAdaptor } from "@liveviewjs/express";
+import { NodeExpressLiveViewServer } from "@liveviewjs/express";
 import express from "express";
 import session, { MemoryStore } from "express-session";
 import { Server } from "http";
 import { LiveViewRouter } from "liveviewjs";
-import { nanoid } from "nanoid";
 import path from "path";
 import WebSocket from "ws";
 import { todosLiveView } from "./todos/todos_component";
@@ -45,7 +44,9 @@ const liveView = new NodeExpressLiveViewServer(
   router,
   liveHtmlTemplate,
   { title: "TodoMVC", suffix: " · LiveViewJS" },
-  { serDeSigningSecret: signingSecret }
+  {
+    serDeSigningSecret: signingSecret,
+  }
 );
 
 // setup the LiveViewJS middleware
@@ -64,20 +65,8 @@ const wsServer = new WebSocket.Server({
 httpServer.on("request", app);
 
 // initialize the LiveViewJS websocket message router
-const liveViewRouter = liveView.wsRouter();
-
-// send websocket requests to the LiveViewJS message router
-wsServer.on("connection", (ws) => {
-  const connectionId = nanoid();
-  ws.on("message", async (message) => {
-    // pass websocket messages to LiveViewJS
-    await liveViewRouter.onMessage(connectionId, message.toString(), new NodeWsAdaptor(ws));
-  });
-  ws.on("close", async () => {
-    // pass websocket close events to LiveViewJS
-    await liveViewRouter.onClose(connectionId);
-  });
-});
+const liveViewWsMiddleware = liveView.wsMiddleware();
+liveViewWsMiddleware(wsServer);
 
 // listen for requests
 const port = process.env.PORT || 3001;
